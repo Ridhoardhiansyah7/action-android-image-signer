@@ -6,7 +6,7 @@ on:
       build_fingerprint:
         description: 'Current build fingerprint from your device'
         required: true
-        default: 'realme/RMX3231/RMX3231:11/RP1A.201005.001/1655102564057:user/release-keys'
+        default: 'realme/RMX3231/RMX3231:11/RP1A.201005.001/1696902632103:user/release-keys'
       partition_name:
         description: 'Partition name (e.g. boot, recovery, vendor_boot)'
         required: true
