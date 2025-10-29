@@ -1,0 +1,96 @@
+name: Android Single Partition Signer
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_fingerprint:
+        description: 'Current build fingerprint from your device'
+        required: true
+        default: 'realme/RMX3231/RMX3231:11/RP1A.201005.001/1655102564057:user/release-keys'
+      partition_name:
+        description: 'Partition name (e.g. boot, recovery, vendor_boot)'
+        required: true
+        default: 'boot'
+      partition_size:
+        description: 'Partition size in bytes (example: 67108864 for 64MB)'
+        required: true
+        default: '67108864'
+      android_version:
+        description: 'Android OS version (e.g. 11, 12, 13)'
+        required: true
+        default: '11'
+      key_path:
+        description: 'Path to private key (.pem) in this repository'
+        required: true
+        default: 'rsa4096_boot.pem'
+      algorithm:
+        description: 'AVB signing algorithm (e.g., SHA256_RSA2048, SHA256_RSA4096, SHA512_RSA8192)'
+        required: true
+        default: 'SHA256_RSA4096'
+      salt:
+        description: 'Custom salt (optional, 64 hex chars recommended)'
+        required: false
+        default: '7A91E47F8D2CFB95DCCFF13305EE3F07EDCF83A42660A811F3724E1E8B463284'
+  
+jobs:
+  sign_partition:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone Android Image Kitchen (Linux branch)
+        run: |
+          git clone --branch AIK-Linux --single-branch https://github.com/osm0sis/Android-Image-Kitchen.git aik
+          chmod +x aik/*.sh
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y python3 python3-pip unzip wget
+
+      - name: Download avbtool
+        run: |
+          wget https://android.googlesource.com/platform/external/avb/+archive/refs/heads/master.tar.gz -O avb.tar.gz
+          mkdir avbtool
+          tar -xzf avb.tar.gz -C avbtool
+          chmod +x avbtool/avbtool
+
+      - name: Unpack image
+        working-directory: aik
+        run: |
+          IMAGE_FILE="../${{ github.event.inputs.partition_name }}.img"
+          if [ ! -f "$IMAGE_FILE" ]; then
+            echo "❌ ERROR: image file not found: $IMAGE_FILE"
+            echo "Make sure the image is in the root of this repo and named '${{ github.event.inputs.partition_name }}.img'"
+            exit 1
+          fi
+          ./unpackimg.sh "$IMAGE_FILE"
+
+      - name: Repack image
+        working-directory: aik
+        run: ./repackimg.sh
+
+      - name: Sign image using AVBTool
+        run: |
+          python3 avbtool/avbtool add_hash_footer \
+            --image aik/image-new.img \
+            --partition_name ${{ github.event.inputs.partition_name }} \
+            --partition_size ${{ github.event.inputs.partition_size }} \
+            --key ${{ github.event.inputs.key_path }} \
+            --algorithm ${{ github.event.inputs.algorithm }} \
+            --prop com.android.build.boot.fingerprint:${{ github.event.inputs.build_fingerprint }} \
+            --prop com.android.build.boot.os_version:${{ github.event.inputs.android_version }} \
+            --salt ${{ github.event.inputs.salt }}
+
+      - name: Generate SHA1 checksum
+        run: sha1sum aik/image-new.img > image-new.img.sha1
+
+      - name: Upload signed image
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-${{ github.event.inputs.partition_name }}
+          path: |
+            aik/image-new.img
+            image-new.img.sha1
